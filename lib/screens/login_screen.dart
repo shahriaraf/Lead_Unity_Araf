@@ -4,6 +4,8 @@ import 'package:provider/provider.dart';
 import '../providers/auth_provider.dart';
 import '../services/api_service.dart';
 import 'student/student_dashboard.dart';
+import 'supervisor/supervisor_dashboard.dart'; // Import Supervisor Dashboard
+import 'supervisor/supervisor_first_login_screen.dart'; // Import First Login Screen
 import 'register_screen.dart';
 
 class LoginScreen extends StatefulWidget {
@@ -44,9 +46,10 @@ class _LoginScreenState extends State<LoginScreen> {
       if (widget.role == 'student' && user?['role'] == 'student') {
         Navigator.pushAndRemoveUntil(context, MaterialPageRoute(builder: (_) => const StudentDashboard()), (route) => false);
       } else if (widget.role == 'supervisor' && user?['role'] == 'supervisor') {
-         ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Supervisor Dashboard Coming Soon")));
+         // UPDATED: Navigate to the real Supervisor Dashboard
+         Navigator.pushAndRemoveUntil(context, MaterialPageRoute(builder: (_) => const SupervisorDashboard()), (route) => false);
       } else {
-         ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Role mismatch or invalid credentials")));
+         ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Role mismatch or invalid credentials"), backgroundColor: Colors.red));
       }
     } catch (e) {
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.toString()), backgroundColor: Colors.red));
@@ -59,7 +62,7 @@ class _LoginScreenState extends State<LoginScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: Colors.white,
-      appBar: AppBar(backgroundColor: Colors.white, elevation: 0),
+      appBar: AppBar(backgroundColor: Colors.white, elevation: 0, iconTheme: const IconThemeData(color: Colors.black)),
       body: SingleChildScrollView(
         child: Padding(
           padding: const EdgeInsets.symmetric(horizontal: 24.0),
@@ -98,8 +101,25 @@ class _LoginScreenState extends State<LoginScreen> {
                     : const Text('Login'),
                 ),
               ),
+              
+              // --- Supervisor Specific: Activate Account Link ---
+              if (widget.role == 'supervisor')
+                Center(
+                  child: Padding(
+                    padding: const EdgeInsets.only(top: 20.0),
+                    child: TextButton(
+                      onPressed: () => Navigator.push(
+                        context, 
+                        MaterialPageRoute(builder: (_) => const SupervisorFirstLoginScreen())
+                      ),
+                      child: Text("First time login? Activate Account", style: GoogleFonts.inter(color: const Color(0xFF0F766E), fontWeight: FontWeight.w600)),
+                    ),
+                  ),
+                ),
+
               const SizedBox(height: 20),
               
+              // --- Student Specific: Registration Link ---
               if (widget.role == 'student')
                 Center(
                   child: _isRegOpen
