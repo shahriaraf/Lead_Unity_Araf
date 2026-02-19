@@ -86,7 +86,7 @@ class ApiService {
     }
   }
 
-  // --- SUPERVISOR SPECIFIC (REAL ENDPOINTS) ---
+  // --- SUPERVISOR SPECIFIC ---
 
   // 1. First Time Login (Change Password)
   Future<void> changePasswordFirstLogin(String email, String tempPass, String newPass) async {
@@ -112,29 +112,38 @@ class ApiService {
   }
 
   // 3. Get Evaluation Settings (Admin Defined Criteria)
+  // UPDATED: Now returns two sets of config
   Future<Map<String, dynamic>> getEvaluationSettings() async {
     try {
       final response = await _dio.get('/settings');
       final data = response.data;
       
-      // Map backend fields to UI expectation
       return {
-        'criteria1': {'name': data['criteria1Name'] ?? 'Criteria 1', 'max': data['criteria1Max'] ?? 30},
-        'criteria2': {'name': data['criteria2Name'] ?? 'Criteria 2', 'max': data['criteria2Max'] ?? 30},
+        // Defense Board Criteria
+        'defense': {
+           'c1': {'name': data['criteria1Name'] ?? 'Defense 1', 'max': data['criteria1Max'] ?? 30},
+           'c2': {'name': data['criteria2Name'] ?? 'Defense 2', 'max': data['criteria2Max'] ?? 30},
+        },
+        // Supervisor Own Team Criteria
+        'own': {
+           'c1': {'name': data['ownTeamCriteria1Name'] ?? 'Own 1', 'max': data['ownTeamCriteria1Max'] ?? 40},
+           'c2': {'name': data['ownTeamCriteria2Name'] ?? 'Own 2', 'max': data['ownTeamCriteria2Max'] ?? 40},
+        }
       };
     } catch (e) {
       // Fallback
-      return {
-        'criteria1': {'name': 'Criteria 1', 'max': 30},
-        'criteria2': {'name': 'Criteria 2', 'max': 30},
-      };
+      return {};
     }
   }
 
   // 4. Save/Update Marks
-  Future<void> saveTeamMarks(String proposalId, List<Map<String, dynamic>> marksData) async {
+  // UPDATED: Now accepts 'type'
+  Future<void> saveTeamMarks(String proposalId, List<Map<String, dynamic>> marksData, String type) async {
     try {
-      await _dio.post('/proposals/$proposalId/marks', data: marksData);
+      await _dio.post('/proposals/$proposalId/marks', data: {
+        'marks': marksData,
+        'type': type
+      });
     } on DioException catch (e) {
       throw e.response?.data['message'] ?? 'Failed to save marks';
     }

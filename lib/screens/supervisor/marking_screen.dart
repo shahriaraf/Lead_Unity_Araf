@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:provider/provider.dart';
 import '../../services/api_service.dart';
+import '../../providers/auth_provider.dart';
 
 class MarkingScreen extends StatefulWidget {
   final Map<String, dynamic> team;
@@ -11,8 +13,10 @@ class MarkingScreen extends StatefulWidget {
 }
 
 class _MarkingScreenState extends State<MarkingScreen> {
-  Map<String, dynamic>? _settings;
+  // Store full config structure: { 'own': {...}, 'defense': {...} }
+  Map<String, dynamic> _allSettings = {};
   bool _isLoading = true;
+  String _evaluationType = 'defense'; // Default, calculated on load
   
   // Marks State: { studentId: { c1: 0, c2: 0, absent: false, data: {} } }
   final Map<String, Map<String, dynamic>> _studentMarks = {};
@@ -24,27 +28,42 @@ class _MarkingScreenState extends State<MarkingScreen> {
   }
 
   _loadSettingsAndMarks() async {
-    // 1. Fetch Criteria Settings (from Admin)
-    final s = await ApiService().getEvaluationSettings();
-    
-    // 2. Map Existing Saved Marks (if any)
-    final List<dynamic> existingMarksList = widget.team['marks'] ?? [];
-    Map<String, dynamic> existingMarksMap = {};
-    for (var m in existingMarksList) {
-      existingMarksMap[m['studentId']] = m;
+    // 1. Fetch ALL Criteria Settings
+    final settings = await ApiService().getEvaluationSettings();
+    final myId = Provider.of<AuthProvider>(context, listen: false).user?['_id'];
+
+    // 2. Determine Evaluation Type
+    // Check if this logged-in user is one of the supervisors or the assigned one
+    final sups = widget.team['supervisors'] as List? ?? [];
+    bool isMyTeam = false;
+    if (myId != null) {
+      isMyTeam = sups.any((s) => (s is Map ? s['_id'] : s) == myId) || 
+                 (widget.team['assignedSupervisor'] is Map ? widget.team['assignedSupervisor']['_id'] : widget.team['assignedSupervisor']) == myId;
     }
 
-    // 3. Get ONLY Team Members (Removed User/Leader injection logic)
-    final allStudents = [...widget.team['teamMembers']];
+    _evaluationType = isMyTeam ? 'own' : 'defense';
 
-    // 4. Initialize Local State
-    for (var student in allStudents) {
-      // Use studentId field or _id as fallback
+    // 3. Load Marks specific to THIS supervisor and THIS type
+    // The marks array contains marks from ALL supervisors. We must filter.
+    final List<dynamic> allMarksList = widget.team['marks'] ?? [];
+    Map<String, dynamic> mySavedMarks = {};
+
+    for (var m in allMarksList) {
+      // Logic: Mark must belong to ME and match the current TYPE
+      if (m['supervisorId'] == myId && m['type'] == _evaluationType) {
+        mySavedMarks[m['studentId']] = m;
+      }
+    }
+
+    // 4. Initialize Local State for Team Members ONLY
+    final members = [...widget.team['teamMembers']];
+
+    for (var student in members) {
       String uid = student['studentId'] ?? student['_id']; 
       
-      if (existingMarksMap.containsKey(uid)) {
-        // Load Saved Data (Editable)
-        var saved = existingMarksMap[uid];
+      if (mySavedMarks.containsKey(uid)) {
+        // Load Saved Data
+        var saved = mySavedMarks[uid];
         _studentMarks[uid] = {
           'c1': (saved['criteria1'] ?? 0).toDouble(),
           'c2': (saved['criteria2'] ?? 0).toDouble(),
@@ -64,7 +83,7 @@ class _MarkingScreenState extends State<MarkingScreen> {
 
     if (mounted) {
       setState(() {
-        _settings = s;
+        _allSettings = settings;
         _isLoading = false;
       });
     }
@@ -84,7 +103,9 @@ class _MarkingScreenState extends State<MarkingScreen> {
     });
 
     try {
-      await ApiService().saveTeamMarks(widget.team['_id'], payload);
+      // Pass the evaluation type ('own' or 'defense') to the API
+      await ApiService().saveTeamMarks(widget.team['_id'], payload, _evaluationType);
+      
       if(mounted) {
          Navigator.pop(context);
          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Evaluations Saved Successfully"), backgroundColor: Colors.green));
@@ -101,14 +122,19 @@ class _MarkingScreenState extends State<MarkingScreen> {
   Widget build(BuildContext context) {
     if (_isLoading) return const Scaffold(body: Center(child: CircularProgressIndicator()));
 
-    final c1Name = _settings?['criteria1']['name'];
-    final c1Max = _settings?['criteria1']['max'];
-    final c2Name = _settings?['criteria2']['name'];
-    final c2Max = _settings?['criteria2']['max'];
+    // Get correct config based on type
+    final config = _allSettings[_evaluationType] ?? {};
+    final c1Name = config['c1']?['name'] ?? 'Criteria 1';
+    final c1Max = config['c1']?['max'] ?? 30;
+    final c2Name = config['c2']?['name'] ?? 'Criteria 2';
+    final c2Max = config['c2']?['max'] ?? 30;
 
     return Scaffold(
       backgroundColor: Colors.white,
-      appBar: AppBar(title: const Text("Evaluation")),
+      appBar: AppBar(
+        title: Text(_evaluationType == 'own' ? "Supervisor Evaluation" : "Defense Evaluation"),
+        backgroundColor: _evaluationType == 'own' ? Colors.indigo : Colors.deepPurple,
+      ),
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(20),
         child: Column(
@@ -117,13 +143,15 @@ class _MarkingScreenState extends State<MarkingScreen> {
             // Header Info
             Text(widget.team['title'], style: GoogleFonts.poppins(fontSize: 20, fontWeight: FontWeight.bold, color: const Color(0xFF1E293B))),
             const SizedBox(height: 10),
+            
+            // Criteria Banner
             Container(
               width: double.infinity,
               padding: const EdgeInsets.all(16),
               decoration: BoxDecoration(
-                color: const Color(0xFFF8FAFC),
+                color: _evaluationType == 'own' ? Colors.indigo[50] : Colors.purple[50],
                 borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: Colors.grey.shade200)
+                border: Border.all(color: _evaluationType == 'own' ? Colors.indigo[100]! : Colors.purple[100]!)
               ),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -156,7 +184,10 @@ class _MarkingScreenState extends State<MarkingScreen> {
               height: 56,
               child: ElevatedButton(
                 onPressed: _submitMarks,
-                style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF0F766E), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: _evaluationType == 'own' ? Colors.indigo : Colors.deepPurple, 
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))
+                ),
                 child: Row(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: const [
@@ -178,7 +209,7 @@ class _MarkingScreenState extends State<MarkingScreen> {
     return Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text("$label: ", style: const TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF0F766E))),
+        Text("$label: ", style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.black87)),
         Expanded(child: Text("$name ($max Marks)", style: GoogleFonts.inter())),
       ],
     );
@@ -215,7 +246,6 @@ class _StudentMarkingCardState extends State<StudentMarkingCard> {
   void initState() {
     super.initState();
     _isAbsent = widget.marksData['absent'];
-    // Handle 0.0 display as "0" or empty if preferred, currently raw string
     _c1Ctrl.text = widget.marksData['c1'] == 0.0 ? '' : widget.marksData['c1'].toString();
     _c2Ctrl.text = widget.marksData['c2'] == 0.0 ? '' : widget.marksData['c2'].toString();
   }

@@ -4,7 +4,7 @@ import 'package:provider/provider.dart';
 import '../../services/api_service.dart';
 import '../../providers/auth_provider.dart';
 import 'marking_screen.dart';
-import 'supervisor_team_details_screen.dart'; // <--- 1. Import this
+import 'supervisor_team_details_screen.dart';
 
 class TeamListScreen extends StatelessWidget {
   final bool onlyMyTeams;
@@ -28,7 +28,8 @@ class TeamListScreen extends StatelessWidget {
           if (onlyMyTeams && myId != null) {
             teams = teams.where((t) {
               final sups = t['supervisors'] as List;
-              return sups.any((s) => s['_id'] == myId || s == myId);
+              return sups.any((s) => (s is Map ? s['_id'] : s) == myId) || 
+                     (t['assignedSupervisor'] is Map ? t['assignedSupervisor']['_id'] : t['assignedSupervisor']) == myId;
             }).toList();
           }
 
@@ -39,6 +40,18 @@ class TeamListScreen extends StatelessWidget {
             itemCount: teams.length,
             itemBuilder: (context, index) {
               final team = teams[index];
+
+              // --- LOGIC: Check if this is "My Team" ---
+              final sups = team['supervisors'] as List? ?? [];
+              bool isMyTeam = false;
+              if (myId != null) {
+                isMyTeam = sups.any((s) => (s is Map ? s['_id'] : s) == myId) || 
+                           (team['assignedSupervisor'] is Map ? team['assignedSupervisor']['_id'] : team['assignedSupervisor']) == myId;
+              }
+
+              // Disable button if in "All Teams" view AND it is my team
+              bool isActionDisabled = !onlyMyTeams && isMyTeam;
+
               return Container(
                 margin: const EdgeInsets.only(bottom: 16),
                 decoration: BoxDecoration(
@@ -67,7 +80,6 @@ class TeamListScreen extends StatelessWidget {
                           // Details Button
                           TextButton(
                             onPressed: () {
-                               // <--- 2. Update this Navigation logic
                                Navigator.push(context, MaterialPageRoute(builder: (_) => SupervisorTeamDetailsScreen(team: team)));
                             }, 
                             child: const Text("Details", style: TextStyle(color: Colors.grey))
@@ -75,16 +87,18 @@ class TeamListScreen extends StatelessWidget {
                           const SizedBox(width: 8),
                           // Evaluate Button
                           ElevatedButton.icon(
-                            onPressed: () {
+                            onPressed: isActionDisabled ? null : () {
+                               // Pass flag or let MarkingScreen detect context
                                Navigator.push(context, MaterialPageRoute(builder: (_) => MarkingScreen(team: team)));
                             },
-                            icon: const Icon(Icons.edit_note, size: 18),
-                            label: const Text("Evaluate"),
+                            icon: isActionDisabled ? const Icon(Icons.lock, size: 18) : const Icon(Icons.edit_note, size: 18),
+                            label: Text(isActionDisabled ? "Your Team" : "Evaluate"),
                             style: ElevatedButton.styleFrom(
-                              backgroundColor: const Color(0xFFF59E0B), 
-                              foregroundColor: Colors.white,
+                              backgroundColor: isActionDisabled ? Colors.grey[300] : const Color(0xFFF59E0B), 
+                              foregroundColor: isActionDisabled ? Colors.grey[600] : Colors.white,
                               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8))
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                              elevation: isActionDisabled ? 0 : 2
                             ),
                           )
                         ],
